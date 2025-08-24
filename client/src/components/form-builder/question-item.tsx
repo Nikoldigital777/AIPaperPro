@@ -13,13 +13,13 @@ interface QuestionItemProps {
 }
 
 export function QuestionItem({ question, onUpdate, onDelete, onConfigureAI }: QuestionItemProps) {
-  const [options, setOptions] = useState(question.options || []);
-  const [title, setTitle] = useState(question.title || '');
+  const [options, setOptions] = useState(question.options ?? []);
+  const [title, setTitle] = useState(question.title ?? '');
 
   // Update local state when question prop changes
   useEffect(() => {
-    setTitle(question.title || '');
-    setOptions(question.options || []);
+    setTitle(question.title ?? '');
+    setOptions(question.options ?? []);
   }, [question.title, question.options]);
 
   const updateTitle = (newTitle: string) => {
@@ -184,7 +184,7 @@ export function QuestionItem({ question, onUpdate, onDelete, onConfigureAI }: Qu
       <div className="flex items-center justify-between mb-4">
         <input
           type="text"
-          value={title}
+          value={title ?? ''}
           onChange={(e) => {
             console.log('Typing in question title:', e.target.value);
             updateTitle(e.target.value);

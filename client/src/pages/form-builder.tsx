@@ -58,11 +58,11 @@ export default function FormBuilder() {
         title: existingForm.title || '',
         description: existingForm.description || '',
         questions: existingForm.questions || [],
-        workflowConfig: existingForm.workflowConfig || {
-          emailNotifications: false,
-          slackNotifications: false,
-          requireApproval: false,
-          approverEmail: '',
+        workflowConfig: {
+          emailNotifications: existingForm.workflowConfig?.emailNotifications || false,
+          slackNotifications: existingForm.workflowConfig?.slackNotifications || false,
+          requireApproval: existingForm.workflowConfig?.requireApproval || false,
+          approverEmail: existingForm.workflowConfig?.approverEmail || '',
         },
       });
     }
@@ -262,7 +262,7 @@ export default function FormBuilder() {
             <GlassCard className="p-6 mb-6">
               <div className="mb-4">
                 <Input
-                  value={formState.title || ''}
+                  value={formState.title ?? ''}
                   onChange={(e) => updateFormTitle(e.target.value)}
                   placeholder="Untitled Form"
                   className="bg-transparent text-2xl font-bold text-white border-none outline-none w-full p-0"
@@ -271,7 +271,7 @@ export default function FormBuilder() {
               </div>
               <div className="mb-4">
                 <Textarea
-                  value={formState.description || ''}
+                  value={formState.description ?? ''}
                   onChange={(e) => updateFormDescription(e.target.value)}
                   placeholder="Form description..."
                   className="bg-transparent text-gray-300 border-none outline-none w-full resize-none p-0"
@@ -352,7 +352,7 @@ export default function FormBuilder() {
                     <Input
                       type="email"
                       placeholder="Approver email"
-                      value={formState.workflowConfig.approverEmail || ''}
+                      value={formState.workflowConfig.approverEmail ?? ''}
                       onChange={(e) => updateWorkflowConfig({ approverEmail: e.target.value })}
                       className="w-full"
                       data-testid="approver-email-input"
