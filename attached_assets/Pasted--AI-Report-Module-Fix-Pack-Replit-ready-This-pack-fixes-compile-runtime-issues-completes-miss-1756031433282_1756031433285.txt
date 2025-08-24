@@ -1,0 +1,616 @@
+# AI Report Module — Fix Pack (Replit‑ready)
+
+This pack fixes compile/runtime issues, completes missing APIs, and wires Claude Sonnet 4 + basic email notifications + approvals + export so people can use the module on Replit.
+
+---
+
+## 1) server/index.ts (fix runtime logger artifacts)
+
+```ts
+// server/index.ts
+import express, { type Request, Response, NextFunction } from "express";
+import { registerRoutes } from "./routes";
+import { setupVite, serveStatic, log } from "./vite";
+
+const app = express();
+app.use(express.json());
+app.use(express.urlencoded({ extended: false }));
+
+// Lightweight request timing + API response preview in logs
+app.use((req, res, next) => {
+  const start = Date.now();
+  const path = req.path;
+  let capturedJsonResponse: Record<string, any> | undefined;
+
+  const originalResJson = res.json.bind(res);
+  res.json = (bodyJson: any, ...args: any[]) => {
+    capturedJsonResponse = bodyJson;
+    return originalResJson(bodyJson, ...args);
+  } as any;
+
+  res.on("finish", () => {
+    const duration = Date.now() - start;
+    if (path.startsWith("/api")) {
+      let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
+      if (capturedJsonResponse) logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
+      if (logLine.length > 300) logLine = logLine.slice(0, 299) + "…";
+      log(logLine);
+    }
+  });
+
+  next();
+});
+
+(async () => {
+  const server = await registerRoutes(app);
+
+  app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
+    const status = err.status || err.statusCode || 500;
+    const message = err.message || "Internal Server Error";
+    res.status(status).json({ message });
+  });
+
+  // Only set up Vite in development; otherwise serve built assets
+  if (app.get("env") === "development") {
+    await setupVite(app, server);
+  } else {
+    serveStatic(app);
+  }
+
+  const port = parseInt(process.env.PORT || "5000", 10);
+  server.listen({
+    port,
+    host: "0.0.0.0",
+    // reusePort helps autoscale instances in Replit
+    reusePort: true,
+  }, () => {
+    log(`serving on port ${port}`);
+  });
+})();
+```
+
+---
+
+## 2) server/vite.ts (fix placeholders & import root vite config)
+
+```ts
+// server/vite.ts
+import express, { type Express } from "express";
+import fs from "fs";
+import path from "path";
+import { createServer as createViteServer, createLogger } from "vite";
+import { type Server } from "http";
+import viteConfig from "../vite.config"; // import the root vite config
+import { nanoid } from "nanoid";
+
+const viteLogger = createLogger();
+
+export function log(message: string, source = "express") {
+  const formattedTime = new Date().toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: true,
+  });
+  console.log(`${formattedTime} [${source}] ${message}`);
+}
+
+export async function setupVite(app: Express, server: Server) {
+  const serverOptions = { middlewareMode: true, hmr: { server }, allowedHosts: true as const };
+
+  const vite = await createViteServer({
+    ...viteConfig,
+    configFile: false,
+    customLogger: {
+      ...viteLogger,
+      error: (msg, options) => {
+        viteLogger.error(msg, options);
+        process.exit(1);
+      },
+    },
+    server: serverOptions,
+    appType: "custom",
+  });
+
+  app.use(vite.middlewares);
+  app.use("*", async (req, res, next) => {
+    const url = req.originalUrl;
+    try {
+      const clientTemplate = path.resolve(import.meta.dirname, "..", "client", "index.html");
+      // always reload template so HMR picks up client/src changes reliably in Replit
+      let template = await fs.promises.readFile(clientTemplate, "utf-8");
+      template = template.replace(`src="/src/main.tsx"`, `src="/src/main.tsx?v=${nanoid()}"`);
+      const page = await vite.transformIndexHtml(url, template);
+      res.status(200).set({ "Content-Type": "text/html" }).end(page);
+    } catch (e) {
+      vite.ssrFixStacktrace(e as Error);
+      next(e);
+    }
+  });
+}
+
+export function serveStatic(app: Express) {
+  const distPath = path.resolve(import.meta.dirname, "..", "dist", "public");
+  if (!fs.existsSync(distPath)) {
+    throw new Error(`Could not find the build directory: ${distPath}, make sure to build the client first`);
+  }
+  app.use(express.static(distPath));
+  app.use("*", (_req, res) => res.sendFile(path.resolve(distPath, "index.html")));
+}
+```
+
+---
+
+## 3) server/services/anthropic.ts (Claude Sonnet 4 helpers)
+
+```ts
+// server/services/anthropic.ts
+import Anthropic from "@anthropic-ai/sdk";
+
+/*
+The newest Anthropic model is "claude-sonnet-4-20250514". If the user doesn't specify a model,
+always prefer using "claude-sonnet-4-20250514" as it is the latest model.
+*/
+
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+const DEFAULT_MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-4-20250514";
+
+export async function enhanceText({
+  text,
+  tone = "professional",
+  length = "moderate",
+  prompt,
+}: { text: string; tone?: "professional"|"casual"|"formal"|"creative"; length?: "concise"|"moderate"|"detailed"; prompt?: string }) {
+  const system = `You are an expert editor. Improve clarity, tone ("${tone}"), and length ("${length}"). Output ONLY the rewritten text.`;
+  const user = `${prompt ? `Guidance: ${prompt}\n\n` : ""}Original:\n${text}`;
+
+  const resp = await anthropic.messages.create({
+    model: DEFAULT_MODEL,
+    max_tokens: 1024,
+    system,
+    messages: [{ role: "user", content: user }],
+  });
+  const part = resp.content[0];
+  return part.type === "text" ? part.text : "";
+}
+
+export async function suggestAlternatives({ text, context }: { text: string; context?: string }) {
+  const system = `Generate 3 alternative versions of the given text, each with a different approach or style. Return only the alternatives, one per line.`;
+  const user = context ? `Context: ${context}\n\nText to rewrite: ${text}` : `Text to rewrite: ${text}`;
+
+  const resp = await anthropic.messages.create({
+    model: DEFAULT_MODEL,
+    max_tokens: 800,
+    system,
+    messages: [{ role: "user", content: user }],
+  });
+  const part = resp.content[0];
+  const body = part.type === "text" ? part.text : "";
+  return body.split("\n").map(s => s.trim()).filter(Boolean).slice(0, 3);
+}
+
+export async function analyzeSentiment(text: string): Promise<{ sentiment: string; confidence: number }>{
+  const resp = await anthropic.messages.create({
+    model: DEFAULT_MODEL,
+    max_tokens: 400,
+    system: `You're a sentiment analysis AI. Output JSON with keys: "sentiment" (positive|negative|neutral) and "confidence" (0..1).`,
+    messages: [{ role: "user", content: text }],
+  });
+  const part = resp.content[0];
+  const json = part.type === "text" ? part.text : "{}";
+  const parsed = JSON.parse(json);
+  return { sentiment: parsed.sentiment, confidence: Math.max(0, Math.min(1, Number(parsed.confidence) || 0)) };
+}
+```
+
+---
+
+## 4) server/services/notify.ts (SendGrid email helper)
+
+```ts
+// server/services/notify.ts
+import sg from "@sendgrid/mail";
+
+const key = process.env.SENDGRID_API_KEY;
+if (key) sg.setApiKey(key);
+
+export async function sendEmail({ to, subject, html, from }: { to: string | string[]; subject: string; html: string; from?: string }) {
+  if (!key) return; // silently no-op in dev if not configured
+  const fromAddr = from || process.env.NOTIFY_FROM || "no-reply@aipaper.pro";
+  await sg.send({ to, from: fromAddr, subject, html, mailSettings: { sandboxMode: { enable: false } } as any });
+}
+```
+
+---
+
+## 5) server/storage.ts (complete Drizzle storage)
+
+```ts
+// server/storage.ts
+import {
+  users,
+  forms,
+  formResponses,
+  aiPrompts,
+  type User,
+  type InsertUser,
+  type Form,
+  type InsertForm,
+  type UpdateForm,
+  type FormResponse,
+  type InsertFormResponse,
+  type AiPrompt,
+  type InsertAiPrompt,
+} from "@shared/schema";
+import { db } from "./db";
+import { and, desc, eq } from "drizzle-orm";
+
+export interface IStorage {
+  getUser(id: string): Promise<User | undefined>;
+  upsertUser(user: InsertUser): Promise<User>;
+
+  createForm(form: InsertForm): Promise<Form>;
+  getForm(id: string): Promise<Form | undefined>;
+  getFormsByUser(userId: string): Promise<Form[]>;
+  updateForm(id: string, updates: UpdateForm): Promise<Form>;
+  deleteForm(id: string): Promise<void>;
+
+  createFormResponse(response: InsertFormResponse): Promise<FormResponse>;
+  getFormResponses(formId: string): Promise<FormResponse[]>;
+  getFormResponse(id: string): Promise<FormResponse | undefined>;
+  updateFormResponseStatus(id: string, status: string, reviewedBy?: string): Promise<FormResponse>;
+  updateFormResponseAiEnhanced(id: string, aiEnhancedResponses: any): Promise<FormResponse>;
+
+  createAiPrompt(prompt: InsertAiPrompt): Promise<AiPrompt>;
+  getAiPrompt(questionId: string, formId: string): Promise<AiPrompt | undefined>;
+  updateAiPrompt(questionId: string, formId: string, updates: Partial<InsertAiPrompt>): Promise<AiPrompt>;
+}
+
+export class DatabaseStorage implements IStorage {
+  async getUser(id: string) {
+    const [u] = await db.select().from(users).where(eq(users.id, id));
+    return u;
+  }
+  async upsertUser(userData: InsertUser) {
+    const [u] = await db
+      .insert(users)
+      .values(userData)
+      .onConflictDoUpdate({ target: users.id, set: { ...userData } })
+      .returning();
+    return u;
+  }
+
+  async createForm(formData: InsertForm) {
+    const [f] = await db.insert(forms).values(formData).returning();
+    return f;
+  }
+  async getForm(id: string) {
+    const [f] = await db.select().from(forms).where(eq(forms.id, id));
+    return f;
+  }
+  async getFormsByUser(userId: string) {
+    return db.select().from(forms).where(eq(forms.createdBy, userId)).orderBy(desc(forms.createdAt));
+  }
+  async updateForm(id: string, updates: UpdateForm) {
+    const [f] = await db.update(forms).set(updates).where(eq(forms.id, id)).returning();
+    return f;
+  }
+  async deleteForm(id: string) {
+    await db.delete(forms).where(eq(forms.id, id));
+  }
+
+  async createFormResponse(r: InsertFormResponse) {
+    const [x] = await db.insert(formResponses).values(r).returning();
+    return x;
+  }
+  async getFormResponses(formId: string) {
+    return db.select().from(formResponses).where(eq(formResponses.formId, formId)).orderBy(desc(formResponses.submittedAt));
+  }
+  async getFormResponse(id: string) {
+    const [r] = await db.select().from(formResponses).where(eq(formResponses.id, id));
+    return r;
+  }
+  async updateFormResponseStatus(id: string, status: string, reviewedBy?: string) {
+    const [r] = await db
+      .update(formResponses)
+      .set({ status, reviewedBy: reviewedBy || null, reviewedAt: new Date() })
+      .where(eq(formResponses.id, id))
+      .returning();
+    return r;
+  }
+  async updateFormResponseAiEnhanced(id: string, aiEnhancedResponses: any) {
+    const [r] = await db
+      .update(formResponses)
+      .set({ aiEnhancedResponses })
+      .where(eq(formResponses.id, id))
+      .returning();
+    return r;
+  }
+
+  async createAiPrompt(promptData: InsertAiPrompt) {
+    const [p] = await db.insert(aiPrompts).values(promptData).returning();
+    return p;
+  }
+  async getAiPrompt(questionId: string, formId: string) {
+    const [p] = await db
+      .select()
+      .from(aiPrompts)
+      .where(and(eq(aiPrompts.questionId, questionId), eq(aiPrompts.formId, formId)));
+    return p;
+  }
+  async updateAiPrompt(questionId: string, formId: string, updates: Partial<InsertAiPrompt>) {
+    const [p] = await db
+      .update(aiPrompts)
+      .set(updates)
+      .where(and(eq(aiPrompts.questionId, questionId), eq(aiPrompts.formId, formId)))
+      .returning();
+    return p;
+  }
+}
+
+export const storage = new DatabaseStorage();
+```
+
+---
+
+## 6) server/routes.ts (REST API: forms, responses, AI, approvals)
+
+```ts
+// server/routes.ts
+import type { Express, Request, Response } from "express";
+import express from "express";
+import { storage } from "./storage";
+import { insertFormSchema, updateFormSchema, insertFormResponseSchema } from "@shared/schema";
+import { z } from "zod";
+import { enhanceText, suggestAlternatives } from "./services/anthropic";
+import { sendEmail } from "./services/notify";
+import http from "http";
+
+const CreateFormBody = insertFormSchema.strict();
+const UpdateFormBody = updateFormSchema.strict();
+const CreateResponseBody = insertFormResponseSchema.strict();
+
+const EnhanceBody = z.object({
+  text: z.string().min(1),
+  tone: z.enum(["professional", "casual", "formal", "creative"]).default("professional"),
+  length: z.enum(["concise", "moderate", "detailed"]).default("moderate"),
+  prompt: z.string().optional(),
+});
+
+export async function registerRoutes(app: Express) {
+  const server = http.createServer(app);
+  const api = express.Router();
+
+  // Health
+  api.get("/health", (_req, res) => res.json({ ok: true }));
+
+  // Forms CRUD
+  api.post("/forms", async (req, res, next) => {
+    try {
+      const body = CreateFormBody.parse(req.body);
+      const created = await storage.createForm(body);
+      res.json(created);
+    } catch (e) { next(e); }
+  });
+
+  api.get("/forms", async (req, res, next) => {
+    try {
+      const userId = String(req.query.userId || "");
+      if (!userId) return res.status(400).json({ message: "userId required" });
+      const list = await storage.getFormsByUser(userId);
+      res.json(list);
+    } catch (e) { next(e); }
+  });
+
+  api.get("/forms/:id", async (req, res, next) => {
+    try {
+      const form = await storage.getForm(req.params.id);
+      if (!form) return res.status(404).json({ message: "Form not found" });
+      res.json(form);
+    } catch (e) { next(e); }
+  });
+
+  api.put("/forms/:id", async (req, res, next) => {
+    try {
+      const updates = UpdateFormBody.parse(req.body);
+      const updated = await storage.updateForm(req.params.id, updates);
+      res.json(updated);
+    } catch (e) { next(e); }
+  });
+
+  api.delete("/forms/:id", async (req, res, next) => {
+    try { await storage.deleteForm(req.params.id); res.json({ ok: true }); } catch (e) { next(e); }
+  });
+
+  // AI endpoints
+  api.post("/ai/enhance", async (req, res, next) => {
+    try {
+      const body = EnhanceBody.parse(req.body);
+      const enhancedText = await enhanceText(body);
+      res.json({ enhancedText });
+    } catch (e) { next(e); }
+  });
+
+  api.post("/ai/suggest", async (req, res, next) => {
+    try {
+      const { text, context } = z.object({ text: z.string(), context: z.string().optional() }).parse(req.body);
+      const suggestions = await suggestAlternatives({ text, context });
+      res.json({ suggestions });
+    } catch (e) { next(e); }
+  });
+
+  // Responses + workflow
+  api.post("/forms/:id/responses", async (req, res, next) => {
+    try {
+      const form = await storage.getForm(req.params.id);
+      if (!form) return res.status(404).json({ message: "Form not found" });
+
+      const body = CreateResponseBody.parse({ ...req.body, formId: form.id });
+      const saved = await storage.createFormResponse(body);
+
+      // Run simple workflow: notify + optional approval gate
+      const wf = (form.workflowConfig || {}) as any;
+      const notify = Array.isArray(wf.notifyEmails) ? wf.notifyEmails : [];
+      const approvalsRequired = Boolean(wf.requireApproval);
+
+      if (notify.length && process.env.SENDGRID_API_KEY) {
+        await sendEmail({
+          to: notify,
+          subject: `New submission for: ${form.title}`,
+          html: `<p>A new submission was received.</p>
+                 <p><b>Form:</b> ${form.title}</p>
+                 <p><b>Respondent:</b> ${body.respondentName || ""} ${body.respondentEmail || ""}</p>
+                 <p><a href="${process.env.APP_BASE_URL || ""}/form-responses/${form.id}">Review responses</a></p>`
+        });
+      }
+
+      // If approvals required, leave status as "submitted", otherwise mark approved
+      if (!approvalsRequired) {
+        await storage.updateFormResponseStatus(saved.id, "approved");
+      }
+
+      res.json(saved);
+    } catch (e) { next(e); }
+  });
+
+  api.get("/forms/:id/responses", async (req, res, next) => {
+    try { res.json(await storage.getFormResponses(req.params.id)); } catch (e) { next(e); }
+  });
+
+  api.post("/responses/:id/approve", async (req, res, next) => {
+    try {
+      const reviewerId = String(req.body?.reviewedBy || "");
+      const r = await storage.updateFormResponseStatus(req.params.id, "approved", reviewerId);
+      res.json(r);
+    } catch (e) { next(e); }
+  });
+
+  api.post("/responses/:id/reject", async (req, res, next) => {
+    try {
+      const reviewerId = String(req.body?.reviewedBy || "");
+      const r = await storage.updateFormResponseStatus(req.params.id, "rejected", reviewerId);
+      res.json(r);
+    } catch (e) { next(e); }
+  });
+
+  app.use("/api", api);
+  return server;
+}
+```
+
+---
+
+## 7) client/src/lib/export-utils.ts (fix DOCX export)
+
+```ts
+// client/src/lib/export-utils.ts
+import jsPDF from "jspdf";
+import "jspdf-autotable";
+import { Document, Packer, Paragraph, TextRun } from "docx";
+
+export interface ExportSection { heading: string; body: string }
+
+// Extend jsPDF type to include autoTable
+declare module "jspdf" { interface jsPDF { autoTable: (options: any) => jsPDF } }
+
+export function exportToPDF(title: string, sections: ExportSection[]) {
+  const doc = new jsPDF({ unit: "pt", format: "a4" });
+  doc.setFont("Helvetica", "normal");
+  doc.setFontSize(18);
+  doc.text(title, 40, 60);
+
+  let y = 100;
+  doc.setFontSize(12);
+  sections.forEach((s) => {
+    doc.setFont("Helvetica", "bold");
+    doc.text(s.heading, 40, y);
+    y += 18;
+    doc.setFont("Helvetica", "normal");
+    const lines = doc.splitTextToSize(s.body, 515);
+    for (const line of lines) {
+      if (y > 760) { doc.addPage(); y = 60; }
+      doc.text(line, 40, y);
+      y += 16;
+    }
+    y += 10;
+  });
+  doc.save(`${slugify(title)}.pdf`);
+}
+
+export async function exportToDocx(title: string, sections: ExportSection[]) {
+  const children: Paragraph[] = [
+    new Paragraph({ children: [ new TextRun({ text: title, bold: true, size: 32 }) ] }),
+  ];
+  for (const s of sections) {
+    children.push(new Paragraph({ children: [ new TextRun({ text: s.heading, bold: true, size: 26 }) ] }));
+    children.push(new Paragraph({ children: [ new TextRun({ text: s.body, size: 22 }) ] }));
+  }
+
+  const doc = new Document({ sections: [{ children }] });
+  const blob = await Packer.toBlob(doc);
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `${slugify(title)}.docx`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+function slugify(s: string) { return s.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9\-]/g, "").slice(0, 80); }
+```
+
+---
+
+## 8) replit.md (runbook)
+
+````md
+# Replit Runbook
+
+## Prereqs
+- In the Replit sidebar → **Secrets**, add:
+  - `ANTHROPIC_API_KEY` – your Claude key
+  - `DATABASE_URL` – Neon (or Postgres) URL
+  - `SENDGRID_API_KEY` – for email notifications (optional)
+  - `APP_BASE_URL` – e.g. https://<your-repl-subdomain>.replit.app
+
+## First run
+```sh
+npm i
+npx drizzle-kit generate
+npx drizzle-kit push
+npm run dev
+````
+
+The app serves both API and client on port 5000 (externally 80). The run button already calls `npm run dev`.
+
+## Build for deployment
+
+```sh
+npm run build && npm run start
+```
+
+## Smoke tests
+
+* Open `/ai-demo` → click **Enhance with AI**.
+* Create a form at `/form-builder` (or open existing `/form-builder/:id`).
+* Share link `/form/:id` with a user, submit; if approvals are ON in form workflow, visit `/form-responses/:id` to approve; export PDF/DOCX.
+
+```
+```
+
+---
+
+## Notes
+
+* Frontend builder & pages already exist; these APIs complete the loop.
+* Workflows are simple JSON on the `forms.workflowConfig` field:
+
+  ```json
+  {
+    "notifyEmails": ["approver@company.com"],
+    "requireApproval": true
+  }
+  ```
+* If `SENDGRID_API_KEY` is not set, notifications no-op safely.
+
+```
+```
