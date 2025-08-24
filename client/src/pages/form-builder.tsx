@@ -16,6 +16,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { QuestionType } from "@/lib/types";
 import type { Form } from "@shared/schema";
+import { exportFormToPDF, exportFormToDocx } from "@/lib/export-utils";
 
 export default function FormBuilder() {
   const { id } = useParams();
@@ -138,6 +139,38 @@ export default function FormBuilder() {
     setCurrentQuestionId(null);
   };
 
+  const handleExportPDF = () => {
+    try {
+      exportFormToPDF(formState);
+      toast({
+        title: "Success",
+        description: "Form exported to PDF successfully!",
+      });
+    } catch (error) {
+      toast({
+        title: "Error", 
+        description: "Failed to export PDF. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleExportDocx = async () => {
+    try {
+      await exportFormToDocx(formState);
+      toast({
+        title: "Success",
+        description: "Form exported to Word document successfully!",
+      });
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to export Word document. Please try again.",
+        variant: "destructive", 
+      });
+    }
+  };
+
   if (isLoadingForm) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -185,6 +218,22 @@ export default function FormBuilder() {
                   data-testid="preview-button"
                 >
                   <i className="fas fa-eye mr-2"></i>Preview
+                </Button>
+                <Button
+                  onClick={handleExportPDF}
+                  variant="outline"
+                  className="px-4 py-2 rounded-xl font-medium"
+                  data-testid="export-pdf-button"
+                >
+                  <i className="fas fa-file-pdf mr-2"></i>PDF
+                </Button>
+                <Button
+                  onClick={handleExportDocx}
+                  variant="outline"
+                  className="px-4 py-2 rounded-xl font-medium"
+                  data-testid="export-docx-button"
+                >
+                  <i className="fas fa-file-word mr-2"></i>Word
                 </Button>
                 <Button
                   onClick={handleSaveForm}

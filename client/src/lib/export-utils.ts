@@ -3,24 +3,11 @@ import 'jspdf-autotable';
 import { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, HeadingLevel, AlignmentType } from 'docx';
 import { saveAs } from 'file-saver';
 import type { forms, formResponses } from '@shared/schema';
+import type { FormBuilderState } from './types';
 
-type Form = typeof forms.$inferSelect & {
-  questions: Array<{
-    id: string;
-    type: string;
-    title: string;
-    options?: string[];
-    required?: boolean;
-  }>;
-};
-
-type FormResponse = typeof formResponses.$inferSelect & {
-  responseData?: Record<string, any>;
-};
-
-interface ExportData {
-  form: Form;
-  responses: FormResponse[];
+interface ExportSection {
+  heading: string;
+  body: string;
 }
 
 // Extend jsPDF type to include autoTable
@@ -30,200 +17,122 @@ declare module 'jspdf' {
   }
 }
 
-export async function exportToPDF(data: ExportData) {
-  const { form, responses } = data;
-  const doc = new jsPDF();
-  
-  // Add title
-  doc.setFontSize(20);
-  doc.text(form.title, 20, 30);
-  
-  // Add description
-  if (form.description) {
-    doc.setFontSize(12);
-    doc.text(form.description, 20, 45);
-  }
-  
-  // Add form metadata
-  doc.setFontSize(10);
-  doc.text(`Created: ${form.createdAt ? new Date(form.createdAt).toLocaleDateString() : 'N/A'}`, 20, 60);
-  doc.text(`Total Responses: ${responses.length}`, 20, 70);
-  
-  let yPosition = 90;
-  
-  // Add responses
-  responses.forEach((response, index) => {
-    if (yPosition > 250) {
-      doc.addPage();
-      yPosition = 30;
-    }
-    
-    // Response header
-    doc.setFontSize(14);
-    doc.text(`Response #${index + 1}`, 20, yPosition);
-    doc.setFontSize(10);
-    doc.text(`Submitted: ${response.submittedAt ? new Date(response.submittedAt).toLocaleDateString() : 'N/A'}`, 20, yPosition + 10);
-    doc.text(`Status: ${response.status}`, 20, yPosition + 20);
-    
-    yPosition += 35;
-    
-    // Response data
-    if (response.responseData) {
-      const tableData = Object.entries(response.responseData || {}).map(([questionId, answer]) => {
-        const question = form.questions.find((q: any) => q.id === questionId);
-        return [
-          question?.title || questionId,
-          typeof answer === 'object' ? JSON.stringify(answer) : String(answer)
-        ];
-      });
-      
-      doc.autoTable({
-        startY: yPosition,
-        head: [['Question', 'Answer']],
-        body: tableData,
-        margin: { left: 20, right: 20 },
-        styles: { fontSize: 9 },
-        headStyles: { fillColor: [102, 51, 153] },
-      });
-      
-      yPosition = (doc as any).lastAutoTable.finalY + 20;
-    }
+export function exportToPDF(title: string, sections: ExportSection[]) {
+  const doc = new jsPDF({ unit: "pt", format: "a4" });
+  doc.setFont("Helvetica", "normal");
+  doc.setFontSize(18);
+  doc.text(title, 40, 60);
+
+  let y = 100;
+  doc.setFontSize(12);
+  sections.forEach(s => {
+    doc.setFont("Helvetica", "bold");
+    doc.text(s.heading, 40, y);
+    y += 18;
+    doc.setFont("Helvetica", "normal");
+    const lines = doc.splitTextToSize(s.body, 515);
+    lines.forEach((line: string) => {
+      if (y > 760) { doc.addPage(); y = 60; }
+      doc.text(line, 40, y);
+      y += 16;
+    });
+    y += 10;
   });
-  
-  // Save PDF
-  doc.save(`${form.title.replace(/[^a-zA-Z0-9]/g, '_')}_responses.pdf`);
+
+  doc.save(`${slugify(title)}.pdf`);
 }
 
-export async function exportToWord(data: ExportData) {
-  const { form, responses } = data;
-  
+export async function exportToDocx(title: string, sections: ExportSection[]) {
   const doc = new Document({
     sections: [
       {
         children: [
-          // Title
-          new Paragraph({
-            children: [
-              new TextRun({
-                text: form.title,
-                bold: true,
-                size: 32,
-              }),
-            ],
-            heading: HeadingLevel.TITLE,
+          new Paragraph({ 
+            children: [new TextRun({ text: title, bold: true, size: 32 })] 
           }),
-          
-          // Description
-          ...(form.description ? [
+          ...sections.flatMap(s => [
+            new Paragraph({ 
+              children: [new TextRun({ text: s.heading, bold: true, size: 24 })] 
+            }),
             new Paragraph({
-              children: [
-                new TextRun({
-                  text: form.description,
-                  size: 24,
-                }),
-              ],
+              children: [new TextRun({ text: s.body, size: 22 })],
             }),
-          ] : []),
-          
-          // Metadata
-          new Paragraph({
-            children: [
-              new TextRun({
-                text: `Created: ${form.createdAt ? new Date(form.createdAt).toLocaleDateString() : 'N/A'}`,
-                size: 20,
-              }),
-            ],
-          }),
-          
-          new Paragraph({
-            children: [
-              new TextRun({
-                text: `Total Responses: ${responses.length}`,
-                size: 20,
-              }),
-            ],
-          }),
-          
-          new Paragraph({ text: "" }), // Empty line
-          
-          // Responses
-          ...responses.flatMap((response, index) => [
-            new Paragraph({
-              children: [
-                new TextRun({
-                  text: `Response #${index + 1}`,
-                  bold: true,
-                  size: 24,
-                }),
-              ],
-              heading: HeadingLevel.HEADING_2,
-            }),
-            
-            new Paragraph({
-              children: [
-                new TextRun({
-                  text: `Submitted: ${response.submittedAt ? new Date(response.submittedAt).toLocaleDateString() : 'N/A'}`,
-                  size: 20,
-                }),
-              ],
-            }),
-            
-            new Paragraph({
-              children: [
-                new TextRun({
-                  text: `Status: ${response.status}`,
-                  size: 20,
-                }),
-              ],
-            }),
-            
-            // Response table
-            new Table({
-              rows: [
-                new TableRow({
-                  children: [
-                    new TableCell({
-                      children: [new Paragraph({ text: "Question", alignment: AlignmentType.CENTER })],
-                    }),
-                    new TableCell({
-                      children: [new Paragraph({ text: "Answer", alignment: AlignmentType.CENTER })],
-                    }),
-                  ],
-                }),
-                ...Object.entries(response.responseData || {}).map(([questionId, answer]) => {
-                  const question = form.questions.find((q: any) => q.id === questionId);
-                  return new TableRow({
-                    children: [
-                      new TableCell({
-                        children: [new Paragraph({ text: question?.title || questionId })],
-                      }),
-                      new TableCell({
-                        children: [new Paragraph({ 
-                          text: typeof answer === 'object' ? JSON.stringify(answer) : String(answer) 
-                        })],
-                      }),
-                    ],
-                  });
-                }),
-              ],
-            }),
-            
-            new Paragraph({ text: "" }), // Empty line between responses
           ]),
         ],
       },
     ],
   });
-  
-  // Generate and save document
-  const blob = await Packer.toBlob(doc);
-  saveAs(blob, `${form.title.replace(/[^a-zA-Z0-9]/g, '_')}_responses.docx`);
+
+  const buffer = await Packer.toBuffer(doc);
+  const blob = new Blob([buffer], { 
+    type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" 
+  });
+  saveAs(blob, `${slugify(title)}.docx`);
 }
 
-export async function exportFormSummary(data: ExportData, format: 'pdf' | 'word') {
-  if (format === 'pdf') {
-    await exportToPDF(data);
-  } else {
-    await exportToWord(data);
-  }
+export function exportFormToPDF(formState: FormBuilderState) {
+  const sections: ExportSection[] = [
+    {
+      heading: "Form Description",
+      body: formState.description || "No description provided"
+    },
+    {
+      heading: "Questions",
+      body: formState.questions.map((q, index) => 
+        `${index + 1}. ${q.title} (${q.type}${q.required ? ', required' : ''})`
+      ).join('\n')
+    },
+    {
+      heading: "Workflow Configuration",
+      body: `
+Email Notifications: ${formState.workflowConfig.emailNotifications ? 'Enabled' : 'Disabled'}
+Slack Notifications: ${formState.workflowConfig.slackNotifications ? 'Enabled' : 'Disabled'}
+Require Approval: ${formState.workflowConfig.requireApproval ? 'Yes' : 'No'}
+${formState.workflowConfig.approverEmail ? `Approver Email: ${formState.workflowConfig.approverEmail}` : ''}
+      `.trim()
+    }
+  ];
+
+  exportToPDF(formState.title || 'Untitled Form', sections);
+}
+
+export async function exportFormToDocx(formState: FormBuilderState) {
+  const sections: ExportSection[] = [
+    {
+      heading: "Form Description",
+      body: formState.description || "No description provided"
+    },
+    {
+      heading: "Questions",
+      body: formState.questions.map((q, index) => {
+        let questionText = `${index + 1}. ${q.title} (${q.type}${q.required ? ', required' : ''})`;
+        if (q.options && q.options.length > 0) {
+          questionText += '\nOptions: ' + q.options.join(', ');
+        }
+        if (q.aiPrompt) {
+          questionText += '\nAI Enhancement: Enabled';
+        }
+        return questionText;
+      }).join('\n\n')
+    },
+    {
+      heading: "Workflow Configuration",
+      body: `
+Email Notifications: ${formState.workflowConfig.emailNotifications ? 'Enabled' : 'Disabled'}
+Slack Notifications: ${formState.workflowConfig.slackNotifications ? 'Enabled' : 'Disabled'}
+Require Approval: ${formState.workflowConfig.requireApproval ? 'Yes' : 'No'}
+${formState.workflowConfig.approverEmail ? `Approver Email: ${formState.workflowConfig.approverEmail}` : ''}
+      `.trim()
+    }
+  ];
+
+  await exportToDocx(formState.title || 'Untitled Form', sections);
+}
+
+function slugify(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[^\w\s-]/g, '')
+    .replace(/[\s_-]+/g, '-')
+    .replace(/^-+|-+$/g, '');
 }

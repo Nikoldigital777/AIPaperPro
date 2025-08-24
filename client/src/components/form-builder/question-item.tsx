@@ -3,7 +3,7 @@ import { GlassCard } from "@/components/ui/glass-card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 interface QuestionItemProps {
   question: Question;
@@ -17,10 +17,10 @@ export function QuestionItem({ question, onUpdate, onDelete, onConfigureAI }: Qu
   const [title, setTitle] = useState(question.title || '');
 
   // Update local state when question prop changes
-  useState(() => {
+  useEffect(() => {
     setTitle(question.title || '');
     setOptions(question.options || []);
-  });
+  }, [question.title, question.options]);
 
   const updateTitle = (newTitle: string) => {
     console.log('Updating question title:', newTitle, 'for question:', question.id);
