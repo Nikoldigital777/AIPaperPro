@@ -47,12 +47,14 @@ export function QuestionItem({ question, onUpdate, onDelete, onConfigureAI }: Qu
             {options.map((option, index) => (
               <div key={index} className="flex items-center space-x-3">
                 <input type="radio" disabled className="flex-shrink-0" />
-                <Input
+                <input
+                  type="text"
                   value={option}
                   onChange={(e) => updateOption(index, e.target.value)}
-                  className="flex-1"
+                  className="flex-1 bg-white/10 text-white border border-purple-500/30 rounded px-3 py-2 focus:border-purple-400 focus:outline-none"
                   placeholder={`Option ${index + 1}`}
                   data-testid={`option-input-${index}`}
+                  autoComplete="off"
                 />
                 {options.length > 2 && (
                   <Button
@@ -84,12 +86,14 @@ export function QuestionItem({ question, onUpdate, onDelete, onConfigureAI }: Qu
             {options.map((option, index) => (
               <div key={index} className="flex items-center space-x-3">
                 <input type="checkbox" disabled className="flex-shrink-0" />
-                <Input
+                <input
+                  type="text"
                   value={option}
                   onChange={(e) => updateOption(index, e.target.value)}
-                  className="flex-1"
+                  className="flex-1 bg-white/10 text-white border border-purple-500/30 rounded px-3 py-2 focus:border-purple-400 focus:outline-none"
                   placeholder={`Option ${index + 1}`}
                   data-testid={`checkbox-option-input-${index}`}
+                  autoComplete="off"
                 />
                 {options.length > 2 && (
                   <Button
@@ -170,15 +174,17 @@ export function QuestionItem({ question, onUpdate, onDelete, onConfigureAI }: Qu
   return (
     <GlassCard className="question-item p-6" data-testid={`question-item-${question.id}`}>
       <div className="flex items-center justify-between mb-4">
-        <Input
+        <input
+          type="text"
           value={question.title || ''}
           onChange={(e) => {
             console.log('Question title changing:', e.target.value);
             updateTitle(e.target.value);
           }}
-          className="bg-transparent text-lg font-medium text-white border-2 border-purple-500/30 rounded px-3 py-2 flex-1 focus:border-purple-400 focus:outline-none"
+          className="bg-white/10 text-lg font-medium text-white border-2 border-purple-500/50 rounded-lg px-4 py-2 flex-1 focus:border-purple-400 focus:outline-none focus:bg-white/20 w-full"
           placeholder="Click to edit question title"
           data-testid="question-title-input"
+          autoComplete="off"
         />
         <div className="flex items-center space-x-2">
           {question.type === 'long-text' && onConfigureAI && (
