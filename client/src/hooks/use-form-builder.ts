@@ -31,10 +31,13 @@ export function useFormBuilder() {
       }
 
       questionId = newQuestion.id;
-      return {
+      const newState = {
         ...prev,
         questions: [...prev.questions, newQuestion],
       };
+      
+      console.log('Added question, new state:', newState);
+      return newState;
     });
 
     return questionId!;

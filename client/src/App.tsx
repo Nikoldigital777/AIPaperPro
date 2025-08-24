@@ -6,6 +6,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import Home from "@/pages/home";
 import FormBuilder from "@/pages/form-builder";
 import FormResponses from "@/pages/form-responses";
+import { AiDemo } from "@/pages/ai-demo";
 import NotFound from "@/pages/not-found";
 
 function Router() {
@@ -14,6 +15,7 @@ function Router() {
       <Route path="/" component={Home} />
       <Route path="/form-builder/:id?" component={FormBuilder} />
       <Route path="/form-responses/:id" component={FormResponses} />
+      <Route path="/ai-demo" component={AiDemo} />
       <Route component={NotFound} />
     </Switch>
   );
