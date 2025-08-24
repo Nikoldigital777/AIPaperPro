@@ -63,8 +63,10 @@ interface SidebarProps {
 export function Sidebar({ onDragStart, isOpen, onClose }: SidebarProps) {
   const [draggedType, setDraggedType] = useState<QuestionType | null>(null);
 
-  const handleDragStart = (type: QuestionType) => {
+  const handleDragStart = (e: React.DragEvent, type: QuestionType) => {
     setDraggedType(type);
+    e.dataTransfer.setData('application/json', JSON.stringify({ type }));
+    e.dataTransfer.effectAllowed = 'copy';
     onDragStart(type);
   };
 
@@ -115,7 +117,7 @@ export function Sidebar({ onDragStart, isOpen, onClose }: SidebarProps) {
           >
             <div
               draggable
-              onDragStart={() => handleDragStart(questionType.type)}
+              onDragStart={(e) => handleDragStart(e, questionType.type)}
               onDragEnd={handleDragEnd}
               className="flex items-center space-x-3"
               data-testid={`drag-item-${questionType.type}`}

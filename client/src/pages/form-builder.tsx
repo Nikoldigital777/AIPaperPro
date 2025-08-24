@@ -36,6 +36,7 @@ export default function FormBuilder() {
     updateFormTitle,
     updateFormDescription,
     updateWorkflowConfig,
+    loadFormData,
   } = useFormBuilder();
 
   // Load existing form if editing
@@ -52,17 +53,19 @@ export default function FormBuilder() {
   // Update form state when existing form loads
   useEffect(() => {
     if (existingForm) {
-      updateFormTitle(existingForm.title || '');
-      updateFormDescription(existingForm.description || '');
-      updateWorkflowConfig(existingForm.workflowConfig || {});
-      // Set questions
-      if (existingForm.questions) {
-        existingForm.questions.forEach((q: any) => {
-          updateQuestion(q.id, q);
-        });
-      }
+      loadFormData({
+        title: existingForm.title || '',
+        description: existingForm.description || '',
+        questions: existingForm.questions || [],
+        workflowConfig: existingForm.workflowConfig || {
+          emailNotifications: false,
+          slackNotifications: false,
+          requireApproval: false,
+          approverEmail: '',
+        },
+      });
     }
-  }, [existingForm]);
+  }, [existingForm, loadFormData]);
 
   const saveFormMutation = useMutation({
     mutationFn: async (formData: any) => {

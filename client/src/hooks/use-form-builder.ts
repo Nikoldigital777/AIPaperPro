@@ -16,24 +16,29 @@ export function useFormBuilder() {
   });
 
   const addQuestion = useCallback((type: QuestionType) => {
-    const newQuestion: Question = {
-      id: nanoid(),
-      type,
-      title: `Question ${formState.questions.length + 1}`,
-      required: false,
-    };
+    let questionId: string;
+    
+    setFormState(prev => {
+      const newQuestion: Question = {
+        id: nanoid(),
+        type,
+        title: `Question ${prev.questions.length + 1}`,
+        required: false,
+      };
 
-    if (type === 'multiple-choice' || type === 'checkboxes') {
-      newQuestion.options = ['Option 1', 'Option 2'];
-    }
+      if (type === 'multiple-choice' || type === 'checkboxes') {
+        newQuestion.options = ['Option 1', 'Option 2'];
+      }
 
-    setFormState(prev => ({
-      ...prev,
-      questions: [...prev.questions, newQuestion],
-    }));
+      questionId = newQuestion.id;
+      return {
+        ...prev,
+        questions: [...prev.questions, newQuestion],
+      };
+    });
 
-    return newQuestion.id;
-  }, [formState.questions.length]);
+    return questionId!;
+  }, []);
 
   const updateQuestion = useCallback((id: string, updates: Partial<Question>) => {
     setFormState(prev => ({
@@ -89,6 +94,10 @@ export function useFormBuilder() {
     });
   }, []);
 
+  const loadFormData = useCallback((formData: FormBuilderState) => {
+    setFormState(formData);
+  }, []);
+
   return {
     formState,
     addQuestion,
@@ -99,5 +108,6 @@ export function useFormBuilder() {
     updateFormDescription,
     updateWorkflowConfig,
     resetForm,
+    loadFormData,
   };
 }
