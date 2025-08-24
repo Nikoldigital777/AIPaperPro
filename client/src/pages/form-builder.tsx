@@ -219,6 +219,26 @@ export default function FormBuilder() {
                 >
                   <i className="fas fa-eye mr-2"></i>Preview
                 </Button>
+                {id && (
+                  <>
+                    <Button
+                      onClick={() => window.open(`/form/${id}`, '_blank')}
+                      variant="outline"
+                      className="px-4 py-2 rounded-xl font-medium text-green-400 border-green-400/30 hover:bg-green-400/10"
+                      data-testid="share-form-button"
+                    >
+                      <i className="fas fa-share mr-2"></i>Fill Form
+                    </Button>
+                    <Button
+                      onClick={() => window.open(`/form-responses/${id}`, '_blank')}
+                      variant="outline"
+                      className="px-4 py-2 rounded-xl font-medium text-blue-400 border-blue-400/30 hover:bg-blue-400/10"
+                      data-testid="view-responses-button"
+                    >
+                      <i className="fas fa-robot mr-2"></i>AI Responses
+                    </Button>
+                  </>
+                )}
                 <Button
                   onClick={handleExportPDF}
                   variant="outline"
