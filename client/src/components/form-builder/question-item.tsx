@@ -14,10 +14,18 @@ interface QuestionItemProps {
 
 export function QuestionItem({ question, onUpdate, onDelete, onConfigureAI }: QuestionItemProps) {
   const [options, setOptions] = useState(question.options || []);
+  const [title, setTitle] = useState(question.title || '');
 
-  const updateTitle = (title: string) => {
-    console.log('Updating question title:', title, 'for question:', question.id);
-    onUpdate(question.id, { title });
+  // Update local state when question prop changes
+  useState(() => {
+    setTitle(question.title || '');
+    setOptions(question.options || []);
+  });
+
+  const updateTitle = (newTitle: string) => {
+    console.log('Updating question title:', newTitle, 'for question:', question.id);
+    setTitle(newTitle);
+    onUpdate(question.id, { title: newTitle });
   };
 
   const addOption = () => {
@@ -176,9 +184,9 @@ export function QuestionItem({ question, onUpdate, onDelete, onConfigureAI }: Qu
       <div className="flex items-center justify-between mb-4">
         <input
           type="text"
-          defaultValue={question.title || ''}
-          onBlur={(e) => {
-            console.log('Question title updated:', e.target.value);
+          value={title}
+          onChange={(e) => {
+            console.log('Typing in question title:', e.target.value);
             updateTitle(e.target.value);
           }}
           className="bg-white/10 text-lg font-medium text-white border-2 border-purple-500/50 rounded-lg px-4 py-2 flex-1 focus:border-purple-400 focus:outline-none focus:bg-white/20 w-full"
