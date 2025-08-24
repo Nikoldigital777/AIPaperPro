@@ -1,152 +1,141 @@
-import type { Express } from "express";
-import { createServer, type Server } from "http";
+import type { Express, Request, Response } from "express";
+import express from "express";
 import { storage } from "./storage";
-import { enhanceText, generateSuggestions, type EnhanceTextOptions } from "./services/anthropic";
-import { 
-  insertFormSchema, 
-  updateFormSchema, 
-  insertFormResponseSchema,
-  insertAiPromptSchema 
-} from "@shared/schema";
+import { insertFormSchema, updateFormSchema, insertFormResponseSchema } from "@shared/schema";
 import { z } from "zod";
+import { enhanceText, generateSuggestions, type EnhanceTextOptions } from "./services/anthropic";
+import { sendEmail } from "./services/notify";
+import http from "http";
 
-export async function registerRoutes(app: Express): Promise<Server> {
-  // Forms routes
-  app.post("/api/forms", async (req, res) => {
+const CreateFormBody = insertFormSchema.strict();
+const UpdateFormBody = updateFormSchema.strict();
+const CreateResponseBody = insertFormResponseSchema.strict();
+
+const EnhanceBody = z.object({
+  text: z.string().min(1),
+  tone: z.enum(["professional", "casual", "formal", "creative"]).default("professional"),
+  length: z.enum(["concise", "moderate", "detailed"]).default("moderate"),
+  prompt: z.string().optional(),
+});
+
+export async function registerRoutes(app: Express) {
+  const server = http.createServer(app);
+  const api = express.Router();
+
+  // Health
+  api.get("/health", (_req, res) => res.json({ ok: true }));
+
+  // Forms CRUD
+  api.post("/forms", async (req, res, next) => {
     try {
-      const formData = insertFormSchema.parse(req.body);
-      const form = await storage.createForm(formData);
-      res.json(form);
-    } catch (error) {
-      console.error("Error creating form:", error);
-      res.status(400).json({ message: error instanceof Error ? error.message : 'Unknown error' });
-    }
+      const body = CreateFormBody.parse(req.body);
+      const created = await storage.createForm(body);
+      res.json(created);
+    } catch (e) { next(e); }
   });
 
-  app.get("/api/forms", async (req, res) => {
+  api.get("/forms", async (req, res, next) => {
     try {
-      const { userId } = req.query;
-      if (!userId) {
-        return res.status(400).json({ message: "userId is required" });
-      }
-      const forms = await storage.getFormsByUser(userId as string);
-      res.json(forms);
-    } catch (error) {
-      console.error("Error fetching forms:", error);
-      res.status(500).json({ message: "Failed to fetch forms" });
-    }
+      const userId = String(req.query.userId || "");
+      if (!userId) return res.status(400).json({ message: "userId required" });
+      const list = await storage.getFormsByUser(userId);
+      res.json(list);
+    } catch (e) { next(e); }
   });
 
-  app.get("/api/forms/:id", async (req, res) => {
+  api.get("/forms/:id", async (req, res, next) => {
     try {
       const form = await storage.getForm(req.params.id);
-      if (!form) {
-        return res.status(404).json({ message: "Form not found" });
-      }
+      if (!form) return res.status(404).json({ message: "Form not found" });
       res.json(form);
-    } catch (error) {
-      console.error("Error fetching form:", error);
-      res.status(500).json({ message: "Failed to fetch form" });
-    }
+    } catch (e) { next(e); }
   });
 
-  app.patch("/api/forms/:id", async (req, res) => {
+  api.patch("/forms/:id", async (req, res, next) => {
     try {
-      const updates = updateFormSchema.parse(req.body);
-      const form = await storage.updateForm(req.params.id, updates);
-      res.json(form);
-    } catch (error) {
-      console.error("Error updating form:", error);
-      res.status(400).json({ message: error instanceof Error ? error.message : 'Unknown error' });
-    }
+      const updates = UpdateFormBody.parse(req.body);
+      const updated = await storage.updateForm(req.params.id, updates);
+      res.json(updated);
+    } catch (e) { next(e); }
   });
 
-  app.delete("/api/forms/:id", async (req, res) => {
-    try {
-      await storage.deleteForm(req.params.id);
-      res.json({ message: "Form deleted successfully" });
-    } catch (error) {
-      console.error("Error deleting form:", error);
-      res.status(500).json({ message: "Failed to delete form" });
-    }
+  api.delete("/forms/:id", async (req, res, next) => {
+    try { 
+      await storage.deleteForm(req.params.id); 
+      res.json({ message: "Form deleted successfully" }); 
+    } catch (e) { next(e); }
   });
 
-  // Form responses routes
-  app.post("/api/forms/:id/responses", async (req, res) => {
+  // AI endpoints
+  api.post("/ai/enhance", async (req, res, next) => {
     try {
-      const responseData = insertFormResponseSchema.parse({
-        ...req.body,
-        formId: req.params.id,
+      const body = EnhanceBody.parse(req.body);
+      const enhancedText = await enhanceText(body.text, {
+        tone: body.tone,
+        length: body.length,
+        customPrompt: body.prompt,
       });
-      const response = await storage.createFormResponse(responseData);
-      res.json(response);
-    } catch (error) {
-      console.error("Error creating response:", error);
-      res.status(400).json({ message: error instanceof Error ? error.message : 'Unknown error' });
-    }
+      res.json({ enhancedText });
+    } catch (e) { next(e); }
   });
 
-  app.get("/api/forms/:id/responses", async (req, res) => {
+  api.post("/ai/suggest", async (req, res, next) => {
     try {
-      const responses = await storage.getFormResponses(req.params.id);
-      res.json(responses);
-    } catch (error) {
-      console.error("Error fetching responses:", error);
-      res.status(500).json({ message: "Failed to fetch responses" });
-    }
+      const { text, context } = z.object({ text: z.string(), context: z.string().optional() }).parse(req.body);
+      const suggestions = await generateSuggestions(text, context);
+      res.json({ suggestions });
+    } catch (e) { next(e); }
   });
 
-  app.patch("/api/responses/:id/status", async (req, res) => {
+  // Responses + workflow
+  api.post("/forms/:id/responses", async (req, res, next) => {
+    try {
+      const form = await storage.getForm(req.params.id);
+      if (!form) return res.status(404).json({ message: "Form not found" });
+
+      const body = CreateResponseBody.parse({ ...req.body, formId: form.id });
+      const saved = await storage.createFormResponse(body);
+
+      // Run simple workflow: notify + optional approval gate
+      const wf = (form.workflowConfig || {}) as any;
+      const notify = Array.isArray(wf.notifyEmails) ? wf.notifyEmails : [];
+      const approvalsRequired = Boolean(wf.requireApproval);
+
+      if (notify.length && process.env.SENDGRID_API_KEY) {
+        await sendEmail({
+          to: notify,
+          subject: `New submission for: ${form.title}`,
+          html: `<p>A new submission was received.</p>
+                 <p><b>Form:</b> ${form.title}</p>
+                 <p><b>Respondent:</b> ${body.submittedBy || ""}</p>
+                 <p><a href="${process.env.APP_BASE_URL || ""}/form-responses/${form.id}">Review responses</a></p>`
+        });
+      }
+
+      // If approvals required, leave status as "submitted", otherwise mark approved
+      if (!approvalsRequired) {
+        await storage.updateFormResponseStatus(saved.id, "approved");
+      }
+
+      res.json(saved);
+    } catch (e) { next(e); }
+  });
+
+  api.get("/forms/:id/responses", async (req, res, next) => {
+    try { 
+      res.json(await storage.getFormResponses(req.params.id)); 
+    } catch (e) { next(e); }
+  });
+
+  api.patch("/responses/:id/status", async (req, res, next) => {
     try {
       const { status, reviewedBy } = req.body;
       const response = await storage.updateFormResponseStatus(req.params.id, status, reviewedBy);
       res.json(response);
-    } catch (error) {
-      console.error("Error updating response status:", error);
-      res.status(500).json({ message: "Failed to update response status" });
-    }
+    } catch (e) { next(e); }
   });
 
-  // AI enhancement routes
-  app.post("/api/ai/enhance", async (req, res) => {
-    try {
-      const schema = z.object({
-        text: z.string().min(1),
-        tone: z.enum(['professional', 'casual', 'formal', 'creative']).default('professional'),
-        length: z.enum(['concise', 'moderate', 'detailed']).default('moderate'),
-        customPrompt: z.string().optional(),
-      });
-
-      const { text, tone, length, customPrompt } = schema.parse(req.body);
-      
-      const options: EnhanceTextOptions = { tone, length, customPrompt };
-      const enhancedText = await enhanceText(text, options);
-      
-      res.json({ enhancedText });
-    } catch (error) {
-      console.error("Error enhancing text:", error);
-      res.status(400).json({ message: error instanceof Error ? error.message : 'Unknown error' });
-    }
-  });
-
-  app.post("/api/ai/suggestions", async (req, res) => {
-    try {
-      const schema = z.object({
-        text: z.string().min(1),
-        context: z.string().optional(),
-      });
-
-      const { text, context } = schema.parse(req.body);
-      const suggestions = await generateSuggestions(text, context);
-      
-      res.json({ suggestions });
-    } catch (error) {
-      console.error("Error generating suggestions:", error);
-      res.status(400).json({ message: error instanceof Error ? error.message : 'Unknown error' });
-    }
-  });
-
-  app.post("/api/responses/:id/enhance", async (req, res) => {
+  api.post("/responses/:id/enhance", async (req, res, next) => {
     try {
       const schema = z.object({
         questionId: z.string(),
@@ -174,53 +163,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const updatedResponse = await storage.updateFormResponseAiEnhanced(req.params.id, aiEnhanced);
       
       res.json({ enhancedText, response: updatedResponse });
-    } catch (error) {
-      console.error("Error enhancing response:", error);
-      res.status(400).json({ message: error instanceof Error ? error.message : 'Unknown error' });
-    }
+    } catch (e) { next(e); }
   });
 
-  // AI prompts routes
-  app.post("/api/ai/prompts", async (req, res) => {
-    try {
-      const promptData = insertAiPromptSchema.parse(req.body);
-      const prompt = await storage.createAiPrompt(promptData);
-      res.json(prompt);
-    } catch (error) {
-      console.error("Error creating AI prompt:", error);
-      res.status(400).json({ message: error instanceof Error ? error.message : 'Unknown error' });
-    }
-  });
-
-  app.get("/api/ai/prompts/:formId/:questionId", async (req, res) => {
-    try {
-      const { formId, questionId } = req.params;
-      const prompt = await storage.getAiPrompt(questionId, formId);
-      
-      if (!prompt) {
-        return res.status(404).json({ message: "AI prompt not found" });
-      }
-      
-      res.json(prompt);
-    } catch (error) {
-      console.error("Error fetching AI prompt:", error);
-      res.status(500).json({ message: "Failed to fetch AI prompt" });
-    }
-  });
-
-  app.patch("/api/ai/prompts/:formId/:questionId", async (req, res) => {
-    try {
-      const { formId, questionId } = req.params;
-      const updates = req.body;
-      
-      const prompt = await storage.updateAiPrompt(questionId, formId, updates);
-      res.json(prompt);
-    } catch (error) {
-      console.error("Error updating AI prompt:", error);
-      res.status(500).json({ message: "Failed to update AI prompt" });
-    }
-  });
-
-  const httpServer = createServer(app);
-  return httpServer;
+  app.use("/api", api);
+  return server;
 }

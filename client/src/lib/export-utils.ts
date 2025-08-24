@@ -1,20 +1,18 @@
-import jsPDF from 'jspdf';
-import 'jspdf-autotable';
-import { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, HeadingLevel, AlignmentType } from 'docx';
-import { saveAs } from 'file-saver';
-import type { forms, formResponses } from '@shared/schema';
-import type { FormBuilderState } from './types';
+import jsPDF from "jspdf";
+import "jspdf-autotable";
+import { Document, Packer, Paragraph, TextRun } from "docx";
+import { saveAs } from "file-saver";
 
-interface ExportSection {
-  heading: string;
+export interface ExportSection { 
+  heading: string; 
   body: string;
 }
 
 // Extend jsPDF type to include autoTable
-declare module 'jspdf' {
-  interface jsPDF {
+declare module "jspdf" { 
+  interface jsPDF { 
     autoTable: (options: any) => jsPDF;
-  }
+  } 
 }
 
 export function exportToPDF(title: string, sections: ExportSection[]) {
@@ -25,52 +23,42 @@ export function exportToPDF(title: string, sections: ExportSection[]) {
 
   let y = 100;
   doc.setFontSize(12);
-  sections.forEach(s => {
+  sections.forEach((s) => {
     doc.setFont("Helvetica", "bold");
     doc.text(s.heading, 40, y);
     y += 18;
     doc.setFont("Helvetica", "normal");
     const lines = doc.splitTextToSize(s.body, 515);
-    lines.forEach((line: string) => {
+    for (const line of lines) {
       if (y > 760) { doc.addPage(); y = 60; }
       doc.text(line, 40, y);
       y += 16;
-    });
+    }
     y += 10;
   });
-
   doc.save(`${slugify(title)}.pdf`);
 }
 
 export async function exportToDocx(title: string, sections: ExportSection[]) {
-  const doc = new Document({
-    sections: [
-      {
-        children: [
-          new Paragraph({ 
-            children: [new TextRun({ text: title, bold: true, size: 32 })] 
-          }),
-          ...sections.flatMap(s => [
-            new Paragraph({ 
-              children: [new TextRun({ text: s.heading, bold: true, size: 24 })] 
-            }),
-            new Paragraph({
-              children: [new TextRun({ text: s.body, size: 22 })],
-            }),
-          ]),
-        ],
-      },
-    ],
-  });
+  const children: Paragraph[] = [
+    new Paragraph({ children: [ new TextRun({ text: title, bold: true, size: 32 }) ] }),
+  ];
+  for (const s of sections) {
+    children.push(new Paragraph({ children: [ new TextRun({ text: s.heading, bold: true, size: 26 }) ] }));
+    children.push(new Paragraph({ children: [ new TextRun({ text: s.body, size: 22 }) ] }));
+  }
 
-  const buffer = await Packer.toBuffer(doc);
-  const blob = new Blob([buffer], { 
-    type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" 
-  });
+  const doc = new Document({ sections: [{ children }] });
+  const blob = await Packer.toBlob(doc);
   saveAs(blob, `${slugify(title)}.docx`);
 }
 
-export function exportFormToPDF(formState: FormBuilderState) {
+function slugify(s: string) { 
+  return s.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9\-]/g, "").slice(0, 80); 
+}
+
+// Helper functions for form exports
+export function exportFormToPDF(formState: any) {
   const sections: ExportSection[] = [
     {
       heading: "Form Description",
@@ -78,61 +66,28 @@ export function exportFormToPDF(formState: FormBuilderState) {
     },
     {
       heading: "Questions",
-      body: formState.questions.map((q, index) => 
-        `${index + 1}. ${q.title} (${q.type}${q.required ? ', required' : ''})`
+      body: formState.questions.map((q: any, i: number) => 
+        `${i + 1}. ${q.title} (${q.type})`
       ).join('\n')
-    },
-    {
-      heading: "Workflow Configuration",
-      body: `
-Email Notifications: ${formState.workflowConfig.emailNotifications ? 'Enabled' : 'Disabled'}
-Slack Notifications: ${formState.workflowConfig.slackNotifications ? 'Enabled' : 'Disabled'}
-Require Approval: ${formState.workflowConfig.requireApproval ? 'Yes' : 'No'}
-${formState.workflowConfig.approverEmail ? `Approver Email: ${formState.workflowConfig.approverEmail}` : ''}
-      `.trim()
     }
   ];
-
-  exportToPDF(formState.title || 'Untitled Form', sections);
+  
+  exportToPDF(formState.title || "Untitled Form", sections);
 }
 
-export async function exportFormToDocx(formState: FormBuilderState) {
+export async function exportFormToDocx(formState: any) {
   const sections: ExportSection[] = [
     {
-      heading: "Form Description",
+      heading: "Form Description", 
       body: formState.description || "No description provided"
     },
     {
       heading: "Questions",
-      body: formState.questions.map((q, index) => {
-        let questionText = `${index + 1}. ${q.title} (${q.type}${q.required ? ', required' : ''})`;
-        if (q.options && q.options.length > 0) {
-          questionText += '\nOptions: ' + q.options.join(', ');
-        }
-        if (q.aiPrompt) {
-          questionText += '\nAI Enhancement: Enabled';
-        }
-        return questionText;
-      }).join('\n\n')
-    },
-    {
-      heading: "Workflow Configuration",
-      body: `
-Email Notifications: ${formState.workflowConfig.emailNotifications ? 'Enabled' : 'Disabled'}
-Slack Notifications: ${formState.workflowConfig.slackNotifications ? 'Enabled' : 'Disabled'}
-Require Approval: ${formState.workflowConfig.requireApproval ? 'Yes' : 'No'}
-${formState.workflowConfig.approverEmail ? `Approver Email: ${formState.workflowConfig.approverEmail}` : ''}
-      `.trim()
+      body: formState.questions.map((q: any, i: number) => 
+        `${i + 1}. ${q.title} (${q.type})`
+      ).join('\n')
     }
   ];
-
-  await exportToDocx(formState.title || 'Untitled Form', sections);
-}
-
-function slugify(text: string): string {
-  return text
-    .toLowerCase()
-    .replace(/[^\w\s-]/g, '')
-    .replace(/[\s_-]+/g, '-')
-    .replace(/^-+|-+$/g, '');
+  
+  await exportToDocx(formState.title || "Untitled Form", sections);
 }
