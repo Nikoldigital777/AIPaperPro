@@ -1,0 +1,405 @@
+Got it. Here’s a tight gap analysis against your requirements, plus fix-it patches you can drop in today. I’ll reference exact files so you can confirm quickly.
+
+# What works vs. what’s missing
+
+### Form builder UI
+
+* **Drag source**: `Sidebar` sets both `application/json` and `text/plain` and marks items draggable. Good.&#x20;
+* **Drop target**: `DropZone` listens for `dragover/leave/drop` and calls `onDrop(type)`. Good, but it relies on the **parent page** to implement `onDrop` and render a list of questions. If that page is not wiring state correctly, nothing appears.&#x20;
+
+**Likely cause of “dragging not working”**
+Your `/pages/form-builder.tsx` must:
+
+1. Maintain a questions array.
+2. Pass `onDrop` that pushes a new question into state.
+3. Render that list inside `DropZone` children.
+
+If any of those are missing, it will look like nothing happens even though DnD events fire.
+
+### Typing and AI responses
+
+* The preview modal renders inputs but does not persist form values. It is a **visual preview**, not the live form editor. So typing there will not “do anything” by design.&#x20;
+* AI dialogs exist:
+
+  * `AIPromptModal` captures per-question prompt config.&#x20;
+  * `AISuggestionsModal` calls `/api/ai/enhance` and `/api/ai/suggestions`. Good.&#x20;
+
+**Likely cause of “AI not responding”**
+If the server route handlers for `/api/ai/enhance` and `/api/ai/suggestions` are incomplete or env vars for Anthropic are not set on Replit, the modal will spin or toast an error. Check `server/routes.ts` and `server/services/anthropic.ts`.
+
+### Workflow, approvals, notifications, storage
+
+* The structure implies a DB layer and schema, but I do not see explicit workflow endpoints or email notifications tied to form submission in the snippets shown. You also have a SendGrid integration listed in `.replit`, so wiring it is straightforward.&#x20;
+
+### Export to PDF/Word
+
+* There is an `export-utils.ts`, which suggests planned export helpers, but I have not seen the implementation body. You need concrete export functions and a server endpoint or client-side print-to-PDF.&#x20;
+
+---
+
+# Minimal fixes to make it behave “as intended” today
+
+## 1) Make drag-and-drop add questions immediately
+
+Open **`/client/src/pages/form-builder.tsx`** and ensure something like the below exists. This wires state, `onDrop`, and rendering through `DropZone`:
+
+```tsx
+// /client/src/pages/form-builder.tsx
+import { useState } from "react";
+import { Sidebar } from "@/components/form-builder/sidebar";
+import { DropZone } from "@/components/form-builder/drop-zone";
+import { GlassCard } from "@/components/ui/glass-card";
+import { Button } from "@/components/ui/button";
+import type { Question, QuestionType } from "@/lib/types";
+
+export default function FormBuilderPage() {
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [title, setTitle] = useState("Untitled Form");
+  const [description, setDescription] = useState("");
+  const [questions, setQuestions] = useState<Question[]>([]);
+
+  const handleDrop = (type: QuestionType) => {
+    const base: Question = {
+      id: crypto.randomUUID(),
+      type,
+      title: defaultTitle(type),
+      required: false,
+      options: needsOptions(type) ? ["Option 1", "Option 2"] : undefined,
+      aiPromptConfig: undefined,
+    };
+    setQuestions(prev => [...prev, base]);
+  };
+
+  return (
+    <div className="flex min-h-screen">
+      <Sidebar
+        isOpen={isSidebarOpen}
+        onClose={() => setIsSidebarOpen(false)}
+        onDragStart={() => {}}
+      />
+      <main className="flex-1 p-6 lg:ml-80 space-y-4">
+        <GlassCard className="p-4">
+          <input
+            className="w-full bg-transparent text-2xl font-semibold outline-none"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="Form title"
+          />
+          <textarea
+            className="w-full mt-2 bg-transparent text-gray-300 outline-none"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="Form description"
+          />
+        </GlassCard>
+
+        <DropZone onDrop={handleDrop} isEmpty={questions.length === 0}>
+          {questions.map((q, idx) => (
+            <GlassCard key={q.id} className="p-4 space-y-2">
+              <div className="flex items-center justify-between">
+                <input
+                  className="bg-transparent text-white font-medium w-full outline-none"
+                  value={q.title}
+                  onChange={(e) =>
+                    setQuestions(update(q.id, { title: e.target.value }))
+                  }
+                />
+                <label className="ml-4 text-sm text-gray-400 flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={q.required}
+                    onChange={(e) =>
+                      setQuestions(update(q.id, { required: e.target.checked }))
+                    }
+                  />
+                  required
+                </label>
+              </div>
+
+              {q.type === "multiple-choice" || q.type === "checkboxes" ? (
+                <div className="space-y-2">
+                  {(q.options ?? []).map((opt, i) => (
+                    <div key={i} className="flex items-center gap-2">
+                      <span className="opacity-60">{q.type === "multiple-choice" ? "◉" : "☐"}</span>
+                      <input
+                        className="bg-transparent text-gray-200 outline-none flex-1"
+                        value={opt}
+                        onChange={(e) => {
+                          const next = [...(q.options ?? [])];
+                          next[i] = e.target.value;
+                          setQuestions(update(q.id, { options: next }));
+                        }}
+                      />
+                    </div>
+                  ))}
+                  <Button
+                    variant="outline"
+                    onClick={() =>
+                      setQuestions(
+                        update(q.id, { options: [...(q.options ?? []), "New option"] })
+                      )
+                    }
+                  >
+                    Add option
+                  </Button>
+                </div>
+              ) : null}
+            </GlassCard>
+          ))}
+        </DropZone>
+      </main>
+    </div>
+  );
+}
+
+function update(id: string, patch: Partial<Question>) {
+  return (prev: Question[]) =>
+    prev.map((q) => (q.id === id ? { ...q, ...patch } : q));
+}
+function needsOptions(t: QuestionType) {
+  return t === "multiple-choice" || t === "checkboxes";
+}
+function defaultTitle(t: QuestionType) {
+  switch (t) {
+    case "multiple-choice": return "Multiple choice question";
+    case "checkboxes": return "Checkboxes question";
+    case "text-field": return "Short answer";
+    case "long-text": return "Long answer";
+    case "number": return "Number";
+    case "date": return "Date";
+  }
+}
+```
+
+Why this helps
+
+* Guarantees that **drop → state update → immediate render** happens.
+* Lets you **type** directly into question titles and options.
+* Keeps Preview modal as preview only, which is correct.
+
+## 2) Make AI endpoints actually respond
+
+Create or confirm these routes in **`/server/routes.ts`**. They map exactly to what `AISuggestionsModal` calls.
+
+```ts
+// /server/routes.ts
+import { Router } from "express";
+import { z } from "zod";
+import { anthropicComplete } from "./services/anthropic"; // implement below
+
+export const router = Router();
+
+router.post("/api/ai/enhance", async (req, res) => {
+  const schema = z.object({
+    text: z.string().min(1),
+    tone: z.enum(["professional", "casual", "formal", "creative"]).optional(),
+    length: z.enum(["concise", "moderate", "detailed"]).optional(),
+  });
+  const { text, tone = "professional", length = "moderate" } = schema.parse(req.body);
+
+  const prompt = [
+    "You are an assistant that rewrites user text for clarity and impact.",
+    `Tone: ${tone}. Length: ${length}.`,
+    "Preserve original meaning. Return only the rewritten text.",
+    "",
+    "Original:",
+    text,
+  ].join("\n");
+
+  const completion = await anthropicComplete(prompt);
+  res.json({ enhancedText: completion });
+});
+
+router.post("/api/ai/suggestions", async (req, res) => {
+  const schema = z.object({
+    text: z.string().min(1),
+    context: z.string().optional(),
+  });
+  const { text, context } = schema.parse(req.body);
+
+  const prompt = [
+    "Suggest 3 improved variations of the user's text.",
+    "Be crisp. Keep intent. No preface text. Return each on its own line.",
+    context ? `Context: ${context}` : "",
+    "",
+    "Original:",
+    text,
+  ].join("\n");
+
+  const completion = await anthropicComplete(prompt);
+  const suggestions = completion.split("\n").filter(Boolean).slice(0, 3);
+  res.json({ suggestions });
+});
+```
+
+And the Anthropic service:
+
+```ts
+// /server/services/anthropic.ts
+import Anthropic from "@anthropic-ai/sdk";
+
+const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+
+export async function anthropicComplete(prompt: string): Promise<string> {
+  const msg = await client.messages.create({
+    model: "claude-3-5-sonnet-20240620",
+    max_tokens: 600,
+    messages: [{ role: "user", content: prompt }],
+  });
+  const content = msg.content?.[0];
+  if (content?.type === "text") return content.text;
+  return "";
+}
+```
+
+**Replit env**
+Set `ANTHROPIC_API_KEY` in your Replit Secrets. `.replit` already lists the integration, so the module is fine.&#x20;
+
+## 3) Add submission workflow: notify, approvals, storage
+
+* Add a **submit** endpoint that writes a row to `form_responses`, kicks a status of `pending_approval`, and sends a SendGrid email to approvers.
+
+```ts
+// /server/routes.ts (append)
+router.post("/api/forms/:formId/submit", async (req, res) => {
+  const { formId } = req.params;
+  const { answers } = req.body; // { [questionId]: value }
+  // 1) persist
+  const saved = await saveFormResponse({ formId, answers }); // implement in db.ts
+  // 2) notify approver
+  await sendEmail({
+    to: process.env.APPROVER_EMAIL!,
+    subject: `New submission for form ${formId}`,
+    text: `Submission ${saved.id} is pending approval.`,
+  });
+  res.json({ ok: true, id: saved.id });
+});
+```
+
+Schema sketch to add in **`/shared/schema.ts`**:
+
+* `forms`
+* `questions`
+* `responses` (`id`, `form_id`, `answer_json`, `ai_enhanced_answer_json`, `status`, `created_at`)
+* `approvals` (`response_id`, `approved_by`, `approved_at`, `status`)
+
+This gives you **Automated Submission Workflow** with storage and notifications.
+
+## 4) One-click compare and replace
+
+You already have `AISuggestionsModal` delivering an enhanced string. Add a **“Use AI version”** button near each long-text response field in the live fill experience (not preview). Example component pattern:
+
+```tsx
+// inside a long-text question renderer
+<Button
+  variant="outline"
+  onClick={() => setAiModalOpen(true)}
+>
+  Improve with AI
+</Button>
+
+<AISuggestionsModal
+  isOpen={aiModalOpen}
+  onClose={() => setAiModalOpen(false)}
+  originalText={value}
+  onAccept={(enhanced) => setValue(enhanced)}
+/>
+```
+
+This matches your “compare and replace with one click” requirement using existing modal.&#x20;
+
+## 5) Export to PDF and Word
+
+Fill out **`/client/src/lib/export-utils.ts`** with pragmatic client-side exports:
+
+```ts
+// /client/src/lib/export-utils.ts
+import { jsPDF } from "jspdf";
+import { saveAs } from "file-saver";
+import { Document, Packer, Paragraph, TextRun } from "docx";
+
+export function exportToPDF(title: string, sections: Array<{ heading: string; body: string }>) {
+  const doc = new jsPDF({ unit: "pt", format: "a4" });
+  doc.setFont("Helvetica", "normal");
+  doc.setFontSize(18);
+  doc.text(title, 40, 60);
+
+  let y = 100;
+  doc.setFontSize(12);
+  sections.forEach(s => {
+    doc.setFont(undefined, "bold");
+    doc.text(s.heading, 40, y);
+    y += 18;
+    doc.setFont(undefined, "normal");
+    const lines = doc.splitTextToSize(s.body, 515);
+    lines.forEach(line => {
+      if (y > 760) { doc.addPage(); y = 60; }
+      doc.text(line, 40, y);
+      y += 16;
+    });
+    y += 10;
+  });
+
+  doc.save(`${slugify(title)}.pdf`);
+}
+
+export async function exportToDocx(title: string, sections: Array<{ heading: string; body: string }>) {
+  const doc = new Document({
+    sections: [
+      {
+        children: [
+          new Paragraph({ children: [new TextRun({ text: title, bold: true, size: 32 })] }),
+          ...sections.flatMap(s => [
+            new Paragraph({ children: [new TextRun({ text: s.heading, bold: true, size: 24 })] }),
+            new Paragraph({
+              children: [new TextRun({ text: s.body, size: 22 })],
+            }),
+          ]),
+        ],
+      },
+    ],
+  });
+
+  const blob = await Packer.toBlob(doc);
+  saveAs(blob, `${slugify(title)}.docx`);
+}
+
+function slugify(s: string) {
+  return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+}
+```
+
+Hook this to a “Export” button on the responses page.&#x20;
+
+## 6) Documentation & Replit deploy
+
+Add a **`replit.md`** “how to run” section with:
+
+* `npm run dev` for local
+* Secrets required: `ANTHROPIC_API_KEY`, `SENDGRID_API_KEY`, `APPROVER_EMAIL`
+* Database migration steps for Drizzle
+* Test steps: create form → drag items → fill long-text → Improve with AI → submit → check email → export
+
+You already have a `replit.md` file stub. Populate it so it ships with the deliverables.&#x20;
+
+---
+
+# Optional but recommended upgrades
+
+1. Replace the custom DnD with **@dnd-kit** for mobile support and fewer browser quirks.
+2. Add **streaming** for AI enhancement to show tokens as they arrive.
+3. Add **role templates** in `AIPromptModal` so creators can pick “Executive summary,” “Clinical tone,” “Academic,” etc., then let users tweak.&#x20;
+4. Add **response versioning**: store both original and AI version in DB for audit.
+
+---
+
+# Quick checklist vs. your spec
+
+* **Custom Form Builder**: ✅ after wiring `onDrop` + state. MCQ, checkboxes, text, number, date already present. Prompts configurable via `AIPromptModal`.&#x20;
+* **Workflow configuration**: ➕ add submit endpoint, DB schema, SendGrid email.&#x20;
+* **AI suggestion and one-click replace**: ✅ with `AISuggestionsModal` once server routes are live.&#x20;
+* **Automated submission workflow**: ➕ with submit route + status + email approvals.
+* **Export PDF/Word**: ➕ implement `export-utils.ts` above.&#x20;
+* **Deliverables on Replit**: ✅ add envs, document steps in `replit.md`.&#x20;
+
+If you want, I can also drop in ready-to-paste SQL/Drizzle schema for `forms`, `questions`, `responses`, and `approvals`, plus the SendGrid mailer util, and a tiny “Approvals” page to click Approve/Reject.
