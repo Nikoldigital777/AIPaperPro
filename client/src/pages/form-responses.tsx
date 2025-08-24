@@ -277,7 +277,7 @@ export default function FormResponses() {
                               onClick={() => updateStatusMutation.mutate({ 
                                 responseId: response.id, 
                                 status: 'approved',
-                                reviewedBy: 'mock-user-id'
+                                reviewedBy: 'default-user'
                               })}
                               disabled={updateStatusMutation.isPending}
                               className="bg-green-600 hover:bg-green-700 text-white"
@@ -290,7 +290,7 @@ export default function FormResponses() {
                               onClick={() => updateStatusMutation.mutate({ 
                                 responseId: response.id, 
                                 status: 'rejected',
-                                reviewedBy: 'mock-user-id'
+                                reviewedBy: 'default-user'
                               })}
                               disabled={updateStatusMutation.isPending}
                               variant="outline"

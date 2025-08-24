@@ -72,7 +72,7 @@ export default function FormBuilder() {
       } else {
         const response = await apiRequest("POST", "/api/forms", {
           ...formData,
-          createdBy: "mock-user-id", // In real app, get from auth
+          createdBy: "default-user", // In real app, get from auth
         });
         return response.json();
       }

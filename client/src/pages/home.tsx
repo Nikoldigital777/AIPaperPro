@@ -12,8 +12,8 @@ export default function Home() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   
-  // Mock user ID - in real app this would come from auth
-  const userId = "mock-user-id";
+  // Default user ID - in real app this would come from auth
+  const userId = "default-user";
 
   const { data: forms = [], isLoading } = useQuery({
     queryKey: ["/api/forms", { userId }],
