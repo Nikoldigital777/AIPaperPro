@@ -308,8 +308,8 @@ export default function FormResponses() {
                   {/* Response Content */}
                   <div className="space-y-4">
                     {form.questions && Array.isArray(form.questions) && form.questions.map((question: any, qIndex: number) => {
-                      const responseValue = response.responses?.[question.id];
-                      const aiEnhancedValue = response.aiEnhancedResponses?.[question.id];
+                      const responseValue = (response.responses as Record<string, any>)?.[question.id];
+                      const aiEnhancedValue = (response.aiEnhancedResponses as Record<string, any>)?.[question.id];
                       
                       if (!responseValue) return null;
 

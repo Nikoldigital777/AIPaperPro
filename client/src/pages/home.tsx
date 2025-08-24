@@ -123,14 +123,14 @@ export default function Home() {
           
           <GlassCard className="p-6 text-center">
             <div className="text-3xl font-bold text-blue-400 mb-2">
-              {forms.filter(f => f.isPublished).length}
+              {forms.filter((f: Form) => f.isPublished).length}
             </div>
             <div className="text-sm text-gray-400">Published</div>
           </GlassCard>
           
           <GlassCard className="p-6 text-center">
             <div className="text-3xl font-bold text-pink-400 mb-2">
-              {forms.reduce((acc, f) => acc + (f.questions?.length || 0), 0)}
+              {forms.reduce((acc: number, f: Form) => acc + (Array.isArray(f.questions) ? f.questions.length : 0), 0)}
             </div>
             <div className="text-sm text-gray-400">Total Questions</div>
           </GlassCard>
@@ -205,7 +205,7 @@ export default function Home() {
                   )}
                   
                   <div className="flex items-center justify-between text-xs text-gray-500 mb-4">
-                    <span>Questions: {form.questions?.length || 0}</span>
+                    <span>Questions: {Array.isArray(form.questions) ? form.questions.length : 0}</span>
                     <span>
                       {form.createdAt && new Date(form.createdAt).toLocaleDateString()}
                     </span>

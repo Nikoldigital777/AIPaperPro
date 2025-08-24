@@ -1,7 +1,7 @@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -66,7 +66,7 @@ export function AISuggestionsModal({
   });
 
   // Generate initial enhancement when modal opens
-  React.useEffect(() => {
+  useEffect(() => {
     if (isOpen && originalText && !enhancedText) {
       enhanceTextMutation.mutate({
         text: originalText,

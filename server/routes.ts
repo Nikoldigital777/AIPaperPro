@@ -19,7 +19,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(form);
     } catch (error) {
       console.error("Error creating form:", error);
-      res.status(400).json({ message: error.message });
+      res.status(400).json({ message: error instanceof Error ? error.message : 'Unknown error' });
     }
   });
 
@@ -57,7 +57,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(form);
     } catch (error) {
       console.error("Error updating form:", error);
-      res.status(400).json({ message: error.message });
+      res.status(400).json({ message: error instanceof Error ? error.message : 'Unknown error' });
     }
   });
 
@@ -82,7 +82,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(response);
     } catch (error) {
       console.error("Error creating response:", error);
-      res.status(400).json({ message: error.message });
+      res.status(400).json({ message: error instanceof Error ? error.message : 'Unknown error' });
     }
   });
 
@@ -125,7 +125,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ enhancedText });
     } catch (error) {
       console.error("Error enhancing text:", error);
-      res.status(400).json({ message: error.message });
+      res.status(400).json({ message: error instanceof Error ? error.message : 'Unknown error' });
     }
   });
 
@@ -142,7 +142,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ suggestions });
     } catch (error) {
       console.error("Error generating suggestions:", error);
-      res.status(400).json({ message: error.message });
+      res.status(400).json({ message: error instanceof Error ? error.message : 'Unknown error' });
     }
   });
 
@@ -168,7 +168,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Update AI enhanced responses
-      const aiEnhanced = response.aiEnhancedResponses || {};
+      const aiEnhanced = (response.aiEnhancedResponses as Record<string, any>) || {};
       aiEnhanced[questionId] = enhancedText;
       
       const updatedResponse = await storage.updateFormResponseAiEnhanced(req.params.id, aiEnhanced);
@@ -176,7 +176,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ enhancedText, response: updatedResponse });
     } catch (error) {
       console.error("Error enhancing response:", error);
-      res.status(400).json({ message: error.message });
+      res.status(400).json({ message: error instanceof Error ? error.message : 'Unknown error' });
     }
   });
 
@@ -188,7 +188,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(prompt);
     } catch (error) {
       console.error("Error creating AI prompt:", error);
-      res.status(400).json({ message: error.message });
+      res.status(400).json({ message: error instanceof Error ? error.message : 'Unknown error' });
     }
   });
 

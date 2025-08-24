@@ -146,8 +146,7 @@ export class DatabaseStorage implements IStorage {
     const [prompt] = await db
       .select()
       .from(aiPrompts)
-      .where(eq(aiPrompts.questionId, questionId))
-      .where(eq(aiPrompts.formId, formId));
+      .where(eq(aiPrompts.questionId, questionId) && eq(aiPrompts.formId, formId));
     return prompt;
   }
 
@@ -155,8 +154,7 @@ export class DatabaseStorage implements IStorage {
     const [prompt] = await db
       .update(aiPrompts)
       .set(updates)
-      .where(eq(aiPrompts.questionId, questionId))
-      .where(eq(aiPrompts.formId, formId))
+      .where(eq(aiPrompts.questionId, questionId) && eq(aiPrompts.formId, formId))
       .returning();
     return prompt;
   }

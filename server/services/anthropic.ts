@@ -77,9 +77,10 @@ export async function enhanceText(
       ],
     });
 
-    return response.content[0].text;
+    const content = response.content[0];
+    return content.type === 'text' ? content.text : 'No text response available';
   } catch (error) {
-    throw new Error(`Failed to enhance text: ${error.message}`);
+    throw new Error(`Failed to enhance text: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
 }
 
@@ -107,9 +108,11 @@ export async function generateSuggestions(
       ],
     });
 
-    return response.content[0].text.split('\n').filter(line => line.trim().length > 0);
+    const content = response.content[0];
+    const text = content.type === 'text' ? content.text : '';
+    return text.split('\n').filter((line: string) => line.trim().length > 0);
   } catch (error) {
-    throw new Error(`Failed to generate suggestions: ${error.message}`);
+    throw new Error(`Failed to generate suggestions: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
 }
 
@@ -125,12 +128,14 @@ export async function analyzeSentiment(text: string): Promise<{ sentiment: strin
       ],
     });
 
-    const result = JSON.parse(response.content[0].text);
+    const content = response.content[0];
+    const responseText = content.type === 'text' ? content.text : '{}';
+    const result = JSON.parse(responseText);
     return {
       sentiment: result.sentiment,
       confidence: Math.max(0, Math.min(1, result.confidence))
     };
   } catch (error) {
-    throw new Error("Failed to analyze sentiment: " + error.message);
+    throw new Error("Failed to analyze sentiment: " + (error instanceof Error ? error.message : 'Unknown error'));
   }
 }
