@@ -207,7 +207,7 @@ export default function FormBuilder() {
             <GlassCard className="p-6 mb-6">
               <div className="mb-4">
                 <Input
-                  value={formState.title}
+                  value={formState.title || ''}
                   onChange={(e) => updateFormTitle(e.target.value)}
                   placeholder="Untitled Form"
                   className="bg-transparent text-2xl font-bold text-white border-none outline-none w-full p-0"
@@ -216,7 +216,7 @@ export default function FormBuilder() {
               </div>
               <div className="mb-4">
                 <Textarea
-                  value={formState.description}
+                  value={formState.description || ''}
                   onChange={(e) => updateFormDescription(e.target.value)}
                   placeholder="Form description..."
                   className="bg-transparent text-gray-300 border-none outline-none w-full resize-none p-0"
