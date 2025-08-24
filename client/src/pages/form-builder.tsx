@@ -111,13 +111,16 @@ export default function FormBuilder() {
   };
 
   const handleSaveForm = () => {
+    console.log('Save button clicked, form state:', formState);
+    
     const formData = {
       title: formState.title || 'Untitled Form',
-      description: formState.description,
+      description: formState.description || '',
       questions: formState.questions,
       workflowConfig: formState.workflowConfig,
     };
     
+    console.log('Saving form data:', formData);
     saveFormMutation.mutate(formData);
   };
 
@@ -174,7 +177,10 @@ export default function FormBuilder() {
               </div>
               <div className="flex items-center space-x-3">
                 <Button
-                  onClick={() => setIsPreviewOpen(true)}
+                  onClick={() => {
+                    console.log('Preview button clicked');
+                    setIsPreviewOpen(true);
+                  }}
                   className="btn-primary px-4 py-2 rounded-xl font-medium"
                   data-testid="preview-button"
                 >

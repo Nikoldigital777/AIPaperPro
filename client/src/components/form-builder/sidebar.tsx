@@ -65,8 +65,13 @@ export function Sidebar({ onDragStart, isOpen, onClose }: SidebarProps) {
 
   const handleDragStart = (e: React.DragEvent, type: QuestionType) => {
     setDraggedType(type);
+    
+    // Set data in multiple formats for better compatibility
     e.dataTransfer.setData('application/json', JSON.stringify({ type }));
+    e.dataTransfer.setData('text/plain', type);
     e.dataTransfer.effectAllowed = 'copy';
+    
+    console.log('Starting drag for question type:', type);
     onDragStart(type);
   };
 

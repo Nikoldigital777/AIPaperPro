@@ -27,15 +27,31 @@ export function DropZone({ onDrop, children, isEmpty }: DropZoneProps) {
     e.preventDefault();
     setIsDragOver(false);
     
-    const questionType = e.dataTransfer.getData('application/json');
-    if (questionType) {
+    const questionData = e.dataTransfer.getData('application/json');
+    const questionTypeText = e.dataTransfer.getData('text/plain');
+    
+    let questionType: string | null = null;
+    
+    // Try JSON format first
+    if (questionData) {
       try {
-        const parsed = JSON.parse(questionType);
-        onDrop(parsed.type);
-      } catch {
-        // Handle legacy string format
-        onDrop(questionType as QuestionType);
+        const parsed = JSON.parse(questionData);
+        questionType = parsed.type;
+      } catch (error) {
+        console.warn('Failed to parse JSON drag data:', error);
       }
+    }
+    
+    // Fallback to plain text
+    if (!questionType && questionTypeText) {
+      questionType = questionTypeText;
+    }
+    
+    if (questionType) {
+      console.log('Dropping question type:', questionType);
+      onDrop(questionType as QuestionType);
+    } else {
+      console.error('No valid question type data found in drop event');
     }
   };
 
