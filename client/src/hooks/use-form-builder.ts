@@ -41,12 +41,17 @@ export function useFormBuilder() {
   }, []);
 
   const updateQuestion = useCallback((id: string, updates: Partial<Question>) => {
-    setFormState(prev => ({
-      ...prev,
-      questions: prev.questions.map(q => 
+    console.log('updateQuestion called:', id, updates);
+    setFormState(prev => {
+      const updatedQuestions = prev.questions.map(q => 
         q.id === id ? { ...q, ...updates } : q
-      ),
-    }));
+      );
+      console.log('Updated questions:', updatedQuestions);
+      return {
+        ...prev,
+        questions: updatedQuestions,
+      };
+    });
   }, []);
 
   const deleteQuestion = useCallback((id: string) => {

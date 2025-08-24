@@ -16,6 +16,7 @@ export function QuestionItem({ question, onUpdate, onDelete, onConfigureAI }: Qu
   const [options, setOptions] = useState(question.options || []);
 
   const updateTitle = (title: string) => {
+    console.log('Updating question title:', title, 'for question:', question.id);
     onUpdate(question.id, { title });
   };
 
@@ -170,10 +171,13 @@ export function QuestionItem({ question, onUpdate, onDelete, onConfigureAI }: Qu
     <GlassCard className="question-item p-6" data-testid={`question-item-${question.id}`}>
       <div className="flex items-center justify-between mb-4">
         <Input
-          value={question.title}
-          onChange={(e) => updateTitle(e.target.value)}
-          className="bg-transparent text-lg font-medium text-white border-none outline-none flex-1 p-0"
-          placeholder="Question title"
+          value={question.title || ''}
+          onChange={(e) => {
+            console.log('Question title changing:', e.target.value);
+            updateTitle(e.target.value);
+          }}
+          className="bg-transparent text-lg font-medium text-white border-2 border-purple-500/30 rounded px-3 py-2 flex-1 focus:border-purple-400 focus:outline-none"
+          placeholder="Click to edit question title"
           data-testid="question-title-input"
         />
         <div className="flex items-center space-x-2">
