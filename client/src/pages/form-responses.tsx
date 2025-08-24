@@ -141,11 +141,44 @@ export default function FormResponses() {
     }
   };
 
-  const exportToPDF = () => {
-    toast({
-      title: "Export Feature",
-      description: "PDF export functionality will be implemented with a PDF generation library.",
-    });
+  const exportToPDF = async () => {
+    if (!form || !responses) return;
+    
+    try {
+      const { exportFormSummary } = await import('@/lib/export-utils');
+      await exportFormSummary({ form, responses }, 'pdf');
+      
+      toast({
+        title: "Export Successful",
+        description: "PDF has been downloaded successfully.",
+      });
+    } catch (error) {
+      toast({
+        title: "Export Failed",
+        description: "Failed to export PDF. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const exportToWord = async () => {
+    if (!form || !responses) return;
+    
+    try {
+      const { exportFormSummary } = await import('@/lib/export-utils');
+      await exportFormSummary({ form, responses }, 'word');
+      
+      toast({
+        title: "Export Successful",
+        description: "Word document has been downloaded successfully.",
+      });
+    } catch (error) {
+      toast({
+        title: "Export Failed", 
+        description: "Failed to export Word document. Please try again.",
+        variant: "destructive",
+      });
+    }
   };
 
   if (isLoadingForm || isLoadingResponses) {
@@ -192,10 +225,17 @@ export default function FormResponses() {
           <div className="flex items-center space-x-3">
             <Button
               onClick={exportToPDF}
-              className="btn-primary px-4 py-2 rounded-lg"
+              className="btn-primary px-4 py-2 rounded-lg mr-3"
               data-testid="export-pdf-button"
             >
               <i className="fas fa-file-pdf mr-2"></i>Export PDF
+            </Button>
+            <Button
+              onClick={exportToWord}
+              className="btn-secondary px-4 py-2 rounded-lg"
+              data-testid="export-word-button"
+            >
+              <i className="fas fa-file-word mr-2"></i>Export Word
             </Button>
             <Button
               onClick={() => window.history.back()}
